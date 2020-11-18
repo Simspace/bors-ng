@@ -466,7 +466,7 @@ defmodule BorsNG.Worker.Batcher do
     |> Batcher.GetBorsToml.get("#{batch.project.staging_branch}.tmp")
     |> case do
       {:ok, toml} ->
-        parents =
+        head =
           if toml.use_squash_merge do
             stmp = "#{batch.project.staging_branch}-squash-merge.tmp"
             GitHub.force_push!(repo_conn, base.commit, stmp)
@@ -544,20 +544,12 @@ defmodule BorsNG.Worker.Batcher do
               end)
 
             GitHub.delete_branch!(repo_conn, stmp)
-            [new_head]
-          else
-            parents = [base.commit | Enum.map(patch_links, & &1.patch.commit)]
-            parents
-          end
-
-        head =
-          if toml.use_squash_merge do
             # This will avoid creating a merge commit, which is important since it will prevent
             # bors from polluting th git blame history with it's own name
-            head = Enum.at(parents, 0)
-            GitHub.force_push!(repo_conn, head, batch.project.staging_branch)
-            head
+            GitHub.force_push!(repo_conn, new_head, batch.project.staging_branch)
+            new_head
           else
+            parents = [base.commit | Enum.map(patch_links, & &1.patch.commit)]
             commit_message =
               Batcher.Message.generate_commit_message(
                 patch_links,
