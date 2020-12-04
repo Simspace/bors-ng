@@ -87,6 +87,7 @@ defmodule BorsNG.GitHub.FriendlyMock do
 
   # Defaults
   @def_user %{"id" => 7, "login" => "tester", "avatar_url" => ""}
+  @def_author %{"author_name" => "Tester", "author_email" => "bors-tester@example.com"}
   @def_inst 91
   @def_repo 14
   @def_files %{
@@ -102,7 +103,7 @@ defmodule BorsNG.GitHub.FriendlyMock do
   Creates a single installation with a single repo where
   nothing has happened yet.
   """
-  def init_state() do
+  def init_state(files \\ @def_files) do
     ServerMock.put_state(%{
       {:installation, 91} => %{
         repos: [
@@ -123,7 +124,7 @@ defmodule BorsNG.GitHub.FriendlyMock do
         commits: %{},
         comments: %{},
         statuses: %{},
-        files: %{"master" => @def_files, "staging.tmp" => @def_files},
+        files: %{"master" => files, "staging.tmp" => files},
         collaborators: %{},
         pulls: %{},
         pr_commits: %{}
@@ -216,8 +217,15 @@ defmodule BorsNG.GitHub.FriendlyMock do
     BorsNG.GitHub.get_pr_commits!({{:installation, inst}, repo}, pr_num)
   end
 
-  def add_commit(pr_num, sha, author) do
-    commit = %{sha: sha, author_name: author, author_email: author <> "'s email"}
+  def add_commit(pr_num, author \\ @def_author) do
+    # A bit error prone. Assumes PR commit SHAs are sequential SHA-1-1, SHA-1-2, ...
+    commit_num = 1 + length(commits(pr_num))
+    sha = "SHA-#{pr_num}-#{commit_num}"
+    commit = %{sha: sha,
+               commit_message: "Commit #{commit_num} in PR #{pr_num}",
+               author_name: author["author_name"],
+               author_email: author["author_email"]}
+    update_mock([:files], &Map.put(&1, sha, @def_files))
     # Could eventually prepend instead of appending to make things faster
     update_mock([:pr_commits, pr_num], &(&1 ++ [commit]))
   end
@@ -284,6 +292,30 @@ defmodule BorsNG.GitHub.FriendlyMock do
     FriendlyMock.add_comment(pr_num, "bors ping")
     FriendlyMock.add_comment(pr_num, "bors r+")
     # FriendlyMock.ci_status("SHA-1", "ci", :ok)
+  end
+
+  def squash_example() do
+    # Example function.
+    # Call from iex with
+    #   iex> FriendlyMock.squash_example
+    # Then modify, `recompile()` and run again.
+    alias BorsNG.GitHub.FriendlyMock
+    files = %{
+    ".github/bors.toml" => ~s"""
+    status = [ ]
+    pr_status = [ ]
+    delete_merged_branches = true
+    """
+    }
+    FriendlyMock.init_state(files)
+    FriendlyMock.make_admin()
+    pr_num = FriendlyMock.add_pr("first")
+    FriendlyMock.add_commit(pr_num)
+    FriendlyMock.add_commit(pr_num)
+    FriendlyMock.add_reviewer()
+    FriendlyMock.ci_status("SHA-1", "ci", :ok)
+    FriendlyMock.add_comment(pr_num, "bors ping")
+    FriendlyMock.add_comment(pr_num, "bors r+ squash")
   end
 
   def pr_to_json(%Pr{
