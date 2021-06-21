@@ -48,6 +48,8 @@ config :bors, BorsNG.Database.Repo,
 config :bors, :server, BorsNG.GitHub.ServerMock
 config :bors, :oauth2, BorsNG.GitHub.OAuth2Mock
 
+config :bors, :local_merge?, false
+
 config :bors, BorsNG.GitHub.OAuth2,
   client_id: "III",
   client_secret: "YYY"

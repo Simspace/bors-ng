@@ -1,0 +1,174 @@
+defmodule BorsNG.GitHub.Git.Repo do
+  @moduledoc """
+  Uses local Git to construct staging/trying branches instead of GitHub's
+  API.
+
+  Only used when local merges are enabled.
+  """
+
+  use GenServer
+
+  alias BorsNG.Database.Repo
+  alias BorsNG.Database.Batch
+  alias BorsNG.Database.LinkPatchBatch
+  alias BorsNG.GitHub.Git.Hooks
+
+  def start_link do
+    GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
+  end
+
+  def init(_) do
+    {:ok, nil}
+  end
+
+  @spec merge_batch!(Batch.t()) :: %{commit: String.t(), tree: String.t()} | :conflict
+  def merge_batch!(batch) do  
+    GenServer.call(__MODULE__, {:merge_batch, batch})
+  end
+
+  @spec squash_merge_batch!(Batch.t()) :: %{commit: String.t(), tree: String.t()}
+  def squash_merge_batch!(batch) do
+    GenServer.call(__MODULE__, {:squash_merge_batch, batch})
+  end
+
+  def handle_call(msg, _from, state) do
+    reply = do_handle_call(msg)
+    {:reply, reply, state}
+  end
+
+  defp do_handle_call({:merge_batch, batch}) do
+    batch = batch |> Repo.preload([:project, :patches])
+    workdir = batch.project.name
+
+    # We make sure to clone the repository for each batch, rather than
+    # trying to reuse it, because hooks may change behavior in ways that could
+    # persist between batches in ways that Git can't detect, like modifying 
+    # the .git/config.
+    File.rm_rf!(workdir)
+    init_batch_repo!(batch)
+
+    patch_links =
+      Repo.all(LinkPatchBatch.from_batch(batch.id))
+      |> Enum.sort_by(& &1.patch.pr_xref)
+
+    git = fn args -> System.cmd("git", args, cd: workdir) end
+
+    git.(["fetch", "origin", batch.into_branch])
+    git.(["checkout", "origin/#{batch.into_branch}"])
+
+    Hooks.invoke_before_merge_hook!(workdir)
+
+    merge_status = patch_links
+    |> Enum.reduce(:merged, fn link_patch_batch, status ->
+      case status do
+        :conflict ->
+          :conflict
+
+        _ ->
+          link_patch_batch = link_patch_batch |> Repo.preload([:patch])
+          patch = link_patch_batch.patch
+
+          git.(["fetch", "origin", patch.commit])
+          {_, exit_code} = git.(["merge", patch.commit])
+          case exit_code do
+            0 -> status
+            _ -> :conflict
+          end
+      end
+    end)
+
+    case merge_status do
+      :conflict ->
+        :conflict
+
+      :merged ->
+        Hooks.invoke_after_merge_hook!(workdir)
+        commit_hook_changes!(workdir)
+        persist_local_to_github!("#{batch.project.staging_branch}.tmp", workdir)
+
+        local_commit_info(batch.project.name)
+    end    
+  end
+
+  defp do_handle_call({:squash_merge_batch, batch}) do
+    batch = batch |> Repo.preload([:project, :patches])
+    workdir = batch.project.name
+
+    # We make sure to clone the repository for each batch, rather than
+    # trying to reuse it, because hooks may change behavior in ways that could
+    # persist between batches in ways that Git can't detect, like modifying 
+    # the .git/config.
+    File.rm_rf!(workdir)
+    init_batch_repo!(batch)
+
+    patch_links =
+      Repo.all(LinkPatchBatch.from_batch(batch.id))
+      |> Enum.sort_by(& &1.patch.pr_xref)
+
+    git = fn args -> System.cmd("git", args, cd: workdir) end
+
+    git.(["fetch", "origin", batch.into_branch])
+    git.(["checkout", "origin/#{batch.into_branch}"])    
+
+    Hooks.invoke_before_merge_hook!(workdir)
+    
+    head = patch_links
+    |> Enum.reduce(batch.into_branch, fn patch_link, prev_head ->
+        patch_link = patch_link |> Repo.preload([:patch])
+        patch = patch_link.patch
+
+        git.(["fetch", "origin", patch.commit])
+        {_, 0} = git.(["merge", patch.commit])
+        %{tree: tree} = local_commit_info(workdir)
+
+        # Manually create a squash commit with the directory contents after the merge
+        {new_head, 0} = git.(["commit-tree", tree, "-p", prev_head, "-m", "[ci skip][skip ci] merging PR"])
+        String.trim(new_head)
+    end)
+
+    git.(["checkout", head])
+    Hooks.invoke_after_merge_hook!(workdir) 
+    commit_hook_changes!(workdir)
+
+    persist_local_to_github!("#{batch.project.staging_branch}-squash-merge.tmp", workdir)
+    local_commit_info(workdir)
+  end
+
+  @spec local_commit_info(String.t()) :: %{commit: String.t(), tree: String.t()}
+  defp local_commit_info(workdir) do
+    {commit, 0} = System.cmd("git", ["log", "-n1", "--pretty=%H"], cd: workdir)
+    {tree, 0} = System.cmd("git", ["log", "-n1", "--pretty=%T"], cd: workdir)
+
+    %{commit: String.trim(commit), tree: String.trim(tree)}
+  end
+
+  @spec init_batch_repo!(Batch.t()) :: :ok
+  defp init_batch_repo!(batch) do
+    batch = batch |> Repo.preload([:project])    
+    System.cmd("git", ["clone", "git@github.com:#{batch.project.name}.git", "--recursive", batch.project.name])
+    :ok
+  end
+
+  @spec persist_local_to_github!(String.t(), String.t()) :: :ok
+  defp persist_local_to_github!(branch_name, workdir) do
+    System.cmd(
+      "git", ["push", "origin", "--force", "HEAD:refs/heads/#{branch_name}"], 
+      cd: workdir
+    )
+    :ok
+  end
+
+  @doc """
+  The intended semantics are that hooks can change the repo filesystem, and
+  we'll combine those changes with our merge commit. This function is careful
+  to not add a new commit to the commit history.
+  """
+  @spec commit_hook_changes!(String.t()) :: :ok
+  def commit_hook_changes!(workdir) do
+    git = fn args -> System.cmd("git", args, cd: workdir) end
+    {last_msg, 0} = git.(["log", "-n1", "--pretty=%B"])
+    git.(["add", "-A"])
+    git.(["commit", "--amend", "-m", last_msg])
+    :ok
+  end
+end
