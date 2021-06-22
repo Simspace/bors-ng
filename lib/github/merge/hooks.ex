@@ -10,7 +10,7 @@ defmodule BorsNG.GitHub.Merge.Hooks do
   end
 
   defp hooks_dir do
-    config[:hooks_dir]
+    config()[:hooks_dir]
   end
 
   @spec invoke_before_merge_hook!(binary) :: nil
