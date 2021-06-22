@@ -7,7 +7,6 @@ defmodule BorsNG.GitHub.Merge.API do
   alias BorsNG.Worker.Batcher
   alias BorsNG.Database.Repo
   alias BorsNG.Database.Project
-  alias BorsNG.Database.LinkPatchBatch
   alias BorsNG.GitHub
   require Logger
 

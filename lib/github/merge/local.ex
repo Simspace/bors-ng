@@ -12,7 +12,9 @@ defmodule BorsNG.GitHub.Merge.Local do
   alias BorsNG.Database.Batch
   alias BorsNG.Database.Project
   alias BorsNG.Database.LinkPatchBatch
+  alias BorsNG.GitHub
   alias BorsNG.GitHub.Merge.Hooks
+  alias BorsNG.Worker.Batcher
 
   def start_link do
     GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
@@ -28,10 +30,10 @@ defmodule BorsNG.GitHub.Merge.Local do
     GenServer.call(__MODULE__, {:merge_batch, batch, patch_links}, :infinity)
   end
 
-  @spec squash_merge_batch!(Batch.t(), list(LinkPatchBatch.t())) 
+  @spec squash_merge_batch!(Batch.t(), list(LinkPatchBatch.t()), map) 
     :: %{commit: String.t(), tree: String.t()}
-  def squash_merge_batch!(batch, patch_links) do
-    GenServer.call(__MODULE__, {:squash_merge_batch, batch, patch_links})
+  def squash_merge_batch!(batch, patch_links, toml) do
+    GenServer.call(__MODULE__, {:squash_merge_batch, batch, patch_links, toml}, :infinity)
   end
 
   def handle_call(msg, _from, state) do
@@ -89,9 +91,11 @@ defmodule BorsNG.GitHub.Merge.Local do
     end    
   end
 
-  defp do_handle_call({:squash_merge_batch, batch, patch_links}) do
+  defp do_handle_call({:squash_merge_batch, batch, patch_links, toml}) do
     batch = batch |> Repo.preload([:project])
     workdir = batch.project.name
+
+    repo_conn = Project.installation_connection(batch.project.repo_xref, Repo)    
 
     # We make sure to clone the repository for each batch, rather than
     # trying to reuse it, because hooks may change behavior in ways that could
@@ -112,12 +116,35 @@ defmodule BorsNG.GitHub.Merge.Local do
         patch_link = patch_link |> Repo.preload([:patch])
         patch = patch_link.patch
 
+        {:ok, commits} = GitHub.get_pr_commits(repo_conn, patch.pr_xref)
+        {:ok, pr} = GitHub.get_pr(repo_conn, patch.pr_xref) 
+        
+        {token, _} = repo_conn
+        user = GitHub.get_user_by_login!(token, pr.user.login)        
+
         git.(["fetch", "origin", patch.commit])
         {_, 0} = git.(["merge", patch.commit])
         %{tree: tree} = local_commit_info(workdir)
 
+        # If a user doesn't have a public email address in their GH profile
+        # then get the email from the first commit to the PR
+        user_email =
+          if user.email != nil do
+            user.email
+          else
+            Enum.at(commits, 0).author_email
+          end        
+
         # Manually create a squash commit with the directory contents after the merge
-        {new_head, 0} = git.(["commit-tree", tree, "-p", prev_head, "-m", "[ci skip][skip ci] merging PR"])
+        commit_message =
+          Batcher.Message.generate_squash_commit_message(
+            pr,
+            commits,
+            user_email,
+            toml.cut_body_after
+          )
+
+        {new_head, 0} = git.(["commit-tree", tree, "-p", prev_head, "-m", commit_message])
         String.trim(new_head)
     end)
 

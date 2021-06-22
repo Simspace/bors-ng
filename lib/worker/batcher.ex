@@ -441,7 +441,7 @@ defmodule BorsNG.Worker.Batcher do
         parents =
           cond do
             squash? and local? -> 
-              %{commit: commit} = Merge.Local.squash_merge_batch!(batch, patch_links)
+              %{commit: commit} = Merge.Local.squash_merge_batch!(batch, patch_links, toml)
               [commit]
             squash? and not local? ->
               commit = Merge.API.squash_merge_batch!(batch, patch_links, base, toml)
