@@ -70,7 +70,7 @@ defmodule BorsNG.GitHub.Merge.Local do
           patch = link_patch_batch.patch
 
           git.(["fetch", "origin", patch.commit])
-          {_, exit_code} = git.(["merge", patch.commit])
+          {_, exit_code} = git.(["merge", patch.commit, "-m", "[ci skip][skip ci][skip netlify] -bors-staging-tmp-#{patch.pr_xref}"])
           case exit_code do
             0 -> status
             _ -> :conflict
