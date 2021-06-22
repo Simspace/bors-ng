@@ -5,8 +5,12 @@ defmodule BorsNG.GitHub.Merge.Hooks do
   Only invoked when local merges are enabled.
   """
 
-  def hooks_dir do
-    ".bors-hooks"
+  defp config do
+    Confex.fetch_env!(:bors, __MODULE__)
+  end
+
+  defp hooks_dir do
+    config[:hooks_dir]
   end
 
   @spec invoke_before_merge_hook!(binary) :: nil
