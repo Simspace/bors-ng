@@ -25,7 +25,7 @@ defmodule BorsNG.GitHub.Merge.Hooks do
         nil
 
       true ->
-        System.cmd(hook_file, [], cd: project_dir)
+        {_, 0} = System.cmd(hook_file, [], cd: project_dir)
         nil
     end
   end
@@ -42,7 +42,7 @@ defmodule BorsNG.GitHub.Merge.Hooks do
         nil
 
       true ->
-        System.cmd(hook_file, [], cd: project_dir)
+        {_, 0} = System.cmd(hook_file, [], cd: project_dir)
         nil
     end
   end
