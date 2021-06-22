@@ -1,4 +1,4 @@
-defmodule BorsNG.GitHub.Git.Hooks do
+defmodule BorsNG.GitHub.Merge.Hooks do
   @moduledoc """
   Runs shell scripts during Bors's merge process.
 

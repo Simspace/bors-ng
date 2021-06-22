@@ -1,4 +1,4 @@
-defmodule BorsNG.GitHub.Git.Repo do
+defmodule BorsNG.GitHub.Merge.Local do
   @moduledoc """
   Uses local Git to construct staging/trying branches instead of GitHub's
   API.
@@ -11,7 +11,7 @@ defmodule BorsNG.GitHub.Git.Repo do
   alias BorsNG.Database.Repo
   alias BorsNG.Database.Batch
   alias BorsNG.Database.LinkPatchBatch
-  alias BorsNG.GitHub.Git.Hooks
+  alias BorsNG.GitHub.Merge.Hooks
 
   def start_link do
     GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
