@@ -24,6 +24,16 @@ defmodule BorsNG.GitHub.Merge.Local do
     {:ok, nil}
   end
 
+  @doc """
+  GitHub allows GH Apps to authenticate over HTTPS using a username of
+  'x-access-token' and a password of the installation access token, which
+  happily gives us a way to authenticate CLI git commands.
+  """
+  def cli_creds(repo_conn) do
+    {:raw, token} = GitHub.get_raw_token!(repo_conn)
+    "x-access-token:#{token}"
+  end
+
   @spec merge_batch!(Batch.t(), list(LinkPatchBatch.t())) 
     :: %{commit: String.t(), tree: String.t()} | :conflict
   def merge_batch!(batch, patch_links) do  
@@ -45,12 +55,14 @@ defmodule BorsNG.GitHub.Merge.Local do
     batch = batch |> Repo.preload([:project])
     workdir = batch.project.name
 
+    repo_conn = Project.installation_connection(batch.project.repo_xref, Repo)
+
     # We make sure to clone the repository for each batch, rather than
     # trying to reuse it, because hooks may change behavior in ways that could
     # persist between batches in ways that Git can't detect, like modifying 
     # the .git/config.
     File.rm_rf!(workdir)
-    init_project_repo!(batch.project)
+    init_project_repo!(batch.project, cli_creds(repo_conn))
 
     git = fn args -> System.cmd("git", args, cd: workdir) end
 
@@ -102,7 +114,7 @@ defmodule BorsNG.GitHub.Merge.Local do
     # persist between batches in ways that Git can't detect, like modifying 
     # the .git/config.
     File.rm_rf!(workdir)
-    init_project_repo!(batch.project)
+    init_project_repo!(batch.project, cli_creds(repo_conn))
 
     git = fn args -> System.cmd("git", args, cd: workdir) end
 
@@ -164,14 +176,22 @@ defmodule BorsNG.GitHub.Merge.Local do
     %{commit: String.trim(commit), tree: String.trim(tree)}
   end
 
-  @spec init_project_repo!(Project.t()) :: :ok
-  defp init_project_repo!(project) do
-    System.cmd("git", ["clone", "git@github.com:#{project.name}.git", "--recursive", project.name])
+  @spec init_project_repo!(Project.t(), String.t()) :: :ok
+  defp init_project_repo!(project, creds) do
+    System.cmd("git", [
+      "clone",
+      "https://#{creds}@github.com/#{project.name}.git", 
+      "--recursive", 
+      project.name
+    ])
     :ok
   end
 
   @spec persist_local_to_github!(String.t(), String.t()) :: :ok
   defp persist_local_to_github!(branch_name, workdir) do
+    # Credentials already exist in the URL for 'origin' here, from the clone.
+    # Each access token is valid for an hour, so there shouldn't be a need to 
+    # refresh it before pushing.
     {_, 0} = System.cmd(
       "git", ["push", "origin", "--force", "HEAD:refs/heads/#{branch_name}"], 
       cd: workdir

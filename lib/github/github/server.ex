@@ -206,6 +206,10 @@ defmodule BorsNG.GitHub.Server do
      )}
   end
 
+  def do_handle_call(:get_raw_token, {{:raw, token}, _}, _) do
+    {:ok, {:raw, token}}
+  end
+
   def do_handle_call(:push, repo_conn, {sha, to}) do
     repo_conn
     |> patch!("git/refs/heads/#{to}", Poison.encode!(%{sha: sha}))
