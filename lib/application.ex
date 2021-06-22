@@ -31,7 +31,7 @@ defmodule BorsNG.Application do
     ]
 
     children = if Confex.fetch_env!(:bors, :local_merge?) do
-      [ worker(BorsNG.GitHub.Git.Repo, []) | children ]
+      [ worker(BorsNG.GitHub.Merge.Local, []) | children ]
     else
       children
     end

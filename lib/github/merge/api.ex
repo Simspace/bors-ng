@@ -11,13 +11,9 @@ defmodule BorsNG.GitHub.Merge.API do
   alias BorsNG.GitHub
   require Logger
 
-  def merge_batch!(batch) do
+  def merge_batch!(batch, patch_links) do
     project = batch.project
     repo_conn = Project.installation_connection(project.repo_xref, Repo)
-
-    patch_links =
-      Repo.all(LinkPatchBatch.from_batch(batch.id))
-      |> Enum.sort_by(& &1.patch.pr_xref)    
 
     stmp = "#{project.staging_branch}.tmp"    
 

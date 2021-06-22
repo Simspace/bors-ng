@@ -10,6 +10,7 @@ defmodule BorsNG.GitHub.Merge.Local do
 
   alias BorsNG.Database.Repo
   alias BorsNG.Database.Batch
+  alias BorsNG.Database.Project
   alias BorsNG.Database.LinkPatchBatch
   alias BorsNG.GitHub.Merge.Hooks
 
@@ -21,14 +22,16 @@ defmodule BorsNG.GitHub.Merge.Local do
     {:ok, nil}
   end
 
-  @spec merge_batch!(Batch.t()) :: %{commit: String.t(), tree: String.t()} | :conflict
-  def merge_batch!(batch) do  
-    GenServer.call(__MODULE__, {:merge_batch, batch})
+  @spec merge_batch!(Batch.t(), list(LinkPatchBatch.t())) 
+    :: %{commit: String.t(), tree: String.t()} | :conflict
+  def merge_batch!(batch, patch_links) do  
+    GenServer.call(__MODULE__, {:merge_batch, batch, patch_links}, :infinity)
   end
 
-  @spec squash_merge_batch!(Batch.t()) :: %{commit: String.t(), tree: String.t()}
-  def squash_merge_batch!(batch) do
-    GenServer.call(__MODULE__, {:squash_merge_batch, batch})
+  @spec squash_merge_batch!(Batch.t(), list(LinkPatchBatch.t())) 
+    :: %{commit: String.t(), tree: String.t()}
+  def squash_merge_batch!(batch, patch_links) do
+    GenServer.call(__MODULE__, {:squash_merge_batch, batch, patch_links})
   end
 
   def handle_call(msg, _from, state) do
@@ -36,8 +39,8 @@ defmodule BorsNG.GitHub.Merge.Local do
     {:reply, reply, state}
   end
 
-  defp do_handle_call({:merge_batch, batch}) do
-    batch = batch |> Repo.preload([:project, :patches])
+  defp do_handle_call({:merge_batch, batch, patch_links}) do
+    batch = batch |> Repo.preload([:project])
     workdir = batch.project.name
 
     # We make sure to clone the repository for each batch, rather than
@@ -45,11 +48,7 @@ defmodule BorsNG.GitHub.Merge.Local do
     # persist between batches in ways that Git can't detect, like modifying 
     # the .git/config.
     File.rm_rf!(workdir)
-    init_batch_repo!(batch)
-
-    patch_links =
-      Repo.all(LinkPatchBatch.from_batch(batch.id))
-      |> Enum.sort_by(& &1.patch.pr_xref)
+    init_project_repo!(batch.project)
 
     git = fn args -> System.cmd("git", args, cd: workdir) end
 
@@ -90,8 +89,8 @@ defmodule BorsNG.GitHub.Merge.Local do
     end    
   end
 
-  defp do_handle_call({:squash_merge_batch, batch}) do
-    batch = batch |> Repo.preload([:project, :patches])
+  defp do_handle_call({:squash_merge_batch, batch, patch_links}) do
+    batch = batch |> Repo.preload([:project])
     workdir = batch.project.name
 
     # We make sure to clone the repository for each batch, rather than
@@ -99,11 +98,7 @@ defmodule BorsNG.GitHub.Merge.Local do
     # persist between batches in ways that Git can't detect, like modifying 
     # the .git/config.
     File.rm_rf!(workdir)
-    init_batch_repo!(batch)
-
-    patch_links =
-      Repo.all(LinkPatchBatch.from_batch(batch.id))
-      |> Enum.sort_by(& &1.patch.pr_xref)
+    init_project_repo!(batch.project)
 
     git = fn args -> System.cmd("git", args, cd: workdir) end
 
@@ -142,16 +137,15 @@ defmodule BorsNG.GitHub.Merge.Local do
     %{commit: String.trim(commit), tree: String.trim(tree)}
   end
 
-  @spec init_batch_repo!(Batch.t()) :: :ok
-  defp init_batch_repo!(batch) do
-    batch = batch |> Repo.preload([:project])    
-    System.cmd("git", ["clone", "git@github.com:#{batch.project.name}.git", "--recursive", batch.project.name])
+  @spec init_project_repo!(Project.t()) :: :ok
+  defp init_project_repo!(project) do
+    System.cmd("git", ["clone", "git@github.com:#{project.name}.git", "--recursive", project.name])
     :ok
   end
 
   @spec persist_local_to_github!(String.t(), String.t()) :: :ok
   defp persist_local_to_github!(branch_name, workdir) do
-    System.cmd(
+    {_, 0} = System.cmd(
       "git", ["push", "origin", "--force", "HEAD:refs/heads/#{branch_name}"], 
       cd: workdir
     )

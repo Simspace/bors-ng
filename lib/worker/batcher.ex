@@ -397,9 +397,9 @@ defmodule BorsNG.Worker.Batcher do
       )
 
     merge = if Confex.fetch_env!(:bors, :local_merge?) do
-      Merge.Local.merge_batch!(batch)
+      Merge.Local.merge_batch!(batch, patch_links)
     else
-      Merge.API.merge_batch!(batch)
+      Merge.API.merge_batch!(batch, patch_links)
     end
 
     {status, commit} =
@@ -441,7 +441,7 @@ defmodule BorsNG.Worker.Batcher do
         parents =
           cond do
             squash? and local? -> 
-              %{commit: commit} = Merge.Local.squash_merge_batch!(batch)
+              %{commit: commit} = Merge.Local.squash_merge_batch!(batch, patch_links)
               [commit]
             squash? and not local? ->
               commit = Merge.API.squash_merge_batch!(batch, patch_links, base, toml)
