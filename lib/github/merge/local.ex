@@ -34,14 +34,14 @@ defmodule BorsNG.GitHub.Merge.Local do
     "x-access-token:#{token}"
   end
 
-  @spec merge_batch!(Batch.t(), list(LinkPatchBatch.t())) 
-    :: %{commit: String.t(), tree: String.t()} | :conflict
-  def merge_batch!(batch, patch_links) do  
+  @spec merge_batch!(Batch.t(), list(LinkPatchBatch.t())) ::
+          %{commit: String.t(), tree: String.t()} | :conflict
+  def merge_batch!(batch, patch_links) do
     GenServer.call(__MODULE__, {:merge_batch, batch, patch_links}, :infinity)
   end
 
-  @spec squash_merge_batch!(Batch.t(), list(LinkPatchBatch.t()), map) 
-    :: %{commit: String.t(), tree: String.t()}
+  @spec squash_merge_batch!(Batch.t(), list(LinkPatchBatch.t()), map) ::
+          %{commit: String.t(), tree: String.t()}
   def squash_merge_batch!(batch, patch_links, toml) do
     GenServer.call(__MODULE__, {:squash_merge_batch, batch, patch_links, toml}, :infinity)
   end
@@ -71,24 +71,33 @@ defmodule BorsNG.GitHub.Merge.Local do
 
     Hooks.invoke_before_merge_hook!(workdir)
 
-    merge_status = patch_links
-    |> Enum.reduce(:merged, fn link_patch_batch, status ->
-      case status do
-        :conflict ->
-          :conflict
+    merge_status =
+      patch_links
+      |> Enum.reduce(:merged, fn link_patch_batch, status ->
+        case status do
+          :conflict ->
+            :conflict
 
-        _ ->
-          link_patch_batch = link_patch_batch |> Repo.preload([:patch])
-          patch = link_patch_batch.patch
+          _ ->
+            link_patch_batch = link_patch_batch |> Repo.preload([:patch])
+            patch = link_patch_batch.patch
 
-          git.(["fetch", "origin", patch.commit])
-          {_, exit_code} = git.(["merge", patch.commit, "-m", "[ci skip][skip ci][skip netlify] -bors-staging-tmp-#{patch.pr_xref}"])
-          case exit_code do
-            0 -> status
-            _ -> :conflict
-          end
-      end
-    end)
+            git.(["fetch", "origin", patch.commit])
+
+            {_, exit_code} =
+              git.([
+                "merge",
+                patch.commit,
+                "-m",
+                "[ci skip][skip ci][skip netlify] -bors-staging-tmp-#{patch.pr_xref}"
+              ])
+
+            case exit_code do
+              0 -> status
+              _ -> :conflict
+            end
+        end
+      end)
 
     case merge_status do
       :conflict ->
@@ -100,14 +109,14 @@ defmodule BorsNG.GitHub.Merge.Local do
         persist_local_to_github!("#{batch.project.staging_branch}.tmp", workdir)
 
         local_commit_info(batch.project.name)
-    end    
+    end
   end
 
   defp do_handle_call({:squash_merge_batch, batch, patch_links, toml}) do
     batch = batch |> Repo.preload([:project])
     workdir = batch.project.name
 
-    repo_conn = Project.installation_connection(batch.project.repo_xref, Repo)    
+    repo_conn = Project.installation_connection(batch.project.repo_xref, Repo)
 
     # We make sure to clone the repository for each batch, rather than
     # trying to reuse it, because hooks may change behavior in ways that could
@@ -119,20 +128,21 @@ defmodule BorsNG.GitHub.Merge.Local do
     git = fn args -> System.cmd("git", args, cd: workdir) end
 
     git.(["fetch", "origin", batch.into_branch])
-    git.(["checkout", "origin/#{batch.into_branch}"])    
+    git.(["checkout", "origin/#{batch.into_branch}"])
 
     Hooks.invoke_before_merge_hook!(workdir)
-    
-    head = patch_links
-    |> Enum.reduce(batch.into_branch, fn patch_link, prev_head ->
+
+    head =
+      patch_links
+      |> Enum.reduce(batch.into_branch, fn patch_link, prev_head ->
         patch_link = patch_link |> Repo.preload([:patch])
         patch = patch_link.patch
 
         {:ok, commits} = GitHub.get_pr_commits(repo_conn, patch.pr_xref)
-        {:ok, pr} = GitHub.get_pr(repo_conn, patch.pr_xref) 
-        
+        {:ok, pr} = GitHub.get_pr(repo_conn, patch.pr_xref)
+
         {token, _} = repo_conn
-        user = GitHub.get_user_by_login!(token, pr.user.login)        
+        user = GitHub.get_user_by_login!(token, pr.user.login)
 
         git.(["fetch", "origin", patch.commit])
         {_, 0} = git.(["merge", patch.commit])
@@ -145,7 +155,7 @@ defmodule BorsNG.GitHub.Merge.Local do
             user.email
           else
             Enum.at(commits, 0).author_email
-          end        
+          end
 
         # Manually create a squash commit with the directory contents after the merge
         commit_message =
@@ -158,10 +168,10 @@ defmodule BorsNG.GitHub.Merge.Local do
 
         {new_head, 0} = git.(["commit-tree", tree, "-p", prev_head, "-m", commit_message])
         String.trim(new_head)
-    end)
+      end)
 
     git.(["checkout", head])
-    Hooks.invoke_after_merge_hook!(workdir) 
+    Hooks.invoke_after_merge_hook!(workdir)
     commit_hook_changes!(workdir)
 
     persist_local_to_github!("#{batch.project.staging_branch}-squash-merge.tmp", workdir)
@@ -180,10 +190,11 @@ defmodule BorsNG.GitHub.Merge.Local do
   defp init_project_repo!(project, creds) do
     System.cmd("git", [
       "clone",
-      "https://#{creds}@github.com/#{project.name}.git", 
-      "--recursive", 
+      "https://#{creds}@github.com/#{project.name}.git",
+      "--recursive",
       project.name
     ])
+
     :ok
   end
 
@@ -192,10 +203,13 @@ defmodule BorsNG.GitHub.Merge.Local do
     # Credentials already exist in the URL for 'origin' here, from the clone.
     # Each access token is valid for an hour, so there shouldn't be a need to 
     # refresh it before pushing.
-    {_, 0} = System.cmd(
-      "git", ["push", "origin", "--force", "HEAD:refs/heads/#{branch_name}"], 
-      cd: workdir
-    )
+    {_, 0} =
+      System.cmd(
+        "git",
+        ["push", "origin", "--force", "HEAD:refs/heads/#{branch_name}"],
+        cd: workdir
+      )
+
     :ok
   end
 

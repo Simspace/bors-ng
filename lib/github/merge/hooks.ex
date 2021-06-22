@@ -15,10 +15,11 @@ defmodule BorsNG.GitHub.Merge.Hooks do
 
   @spec invoke_before_merge_hook!(binary) :: nil
   def invoke_before_merge_hook!(project_dir) do
-    hook_file = File.cwd!()
-    |> Path.join(project_dir)
-    |> Path.join(hooks_dir())
-    |> Path.join("before-merge")
+    hook_file =
+      File.cwd!()
+      |> Path.join(project_dir)
+      |> Path.join(hooks_dir())
+      |> Path.join("before-merge")
 
     case File.exists?(hook_file) do
       false ->
@@ -32,10 +33,11 @@ defmodule BorsNG.GitHub.Merge.Hooks do
 
   @spec invoke_after_merge_hook!(binary) :: nil
   def invoke_after_merge_hook!(project_dir) do
-    hook_file = File.cwd!()
-    |> Path.join(project_dir)
-    |> Path.join(hooks_dir())
-    |> Path.join("after-merge")
+    hook_file =
+      File.cwd!()
+      |> Path.join(project_dir)
+      |> Path.join(hooks_dir())
+      |> Path.join("after-merge")
 
     case File.exists?(hook_file) do
       false ->

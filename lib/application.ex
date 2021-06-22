@@ -30,11 +30,12 @@ defmodule BorsNG.Application do
       supervisor(BorsNG.Endpoint, [])
     ]
 
-    children = if Confex.fetch_env!(:bors, :local_merge?) do
-      [ worker(BorsNG.GitHub.Merge.Local, []) | children ]
-    else
-      children
-    end
+    children =
+      if Confex.fetch_env!(:bors, :local_merge?) do
+        [worker(BorsNG.GitHub.Merge.Local, []) | children]
+      else
+        children
+      end
 
     # See http://elixir-lang.org/docs/stable/elixir/Supervisor.html
     # for other strategies and supported options

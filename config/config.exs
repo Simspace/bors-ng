@@ -57,8 +57,7 @@ config :bors, BorsNG.Endpoint,
   pubsub: [name: BorsNG.PubSub, adapter: Phoenix.PubSub.PG2]
 
 # Configure hooks when local merge is enabled
-config :bors, BorsNG.GitHub.Merge.Hooks,
-  hooks_dir: {:system, "HOOKS_DIR", ".bors-hooks"}
+config :bors, BorsNG.GitHub.Merge.Hooks, hooks_dir: {:system, "HOOKS_DIR", ".bors-hooks"}
 
 # Overridden by the test config to avoid date-specific behavior
 config :bors, :celebrate_new_year, true

@@ -425,8 +425,9 @@ defmodule BorsNG.GitHub do
       GenServer.call(
         BorsNG.GitHub,
         {:get_raw_token, repo_conn, nil},
-        Confex.fetch_env!(:bors, :api_github_timeout)        
+        Confex.fetch_env!(:bors, :api_github_timeout)
       )
+
     token
   end
 

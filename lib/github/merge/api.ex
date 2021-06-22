@@ -14,13 +14,13 @@ defmodule BorsNG.GitHub.Merge.API do
     project = batch.project
     repo_conn = Project.installation_connection(project.repo_xref, Repo)
 
-    stmp = "#{project.staging_branch}.tmp"    
+    stmp = "#{project.staging_branch}.tmp"
 
     base =
       GitHub.get_branch!(
         repo_conn,
         batch.into_branch
-      )    
+      )
 
     tbase = %{
       tree: base.tree,
@@ -35,7 +35,7 @@ defmodule BorsNG.GitHub.Merge.API do
             committer: nil
           }
         )
-    }    
+    }
 
     do_merge_patch = fn %{patch: patch}, branch ->
       case branch do
@@ -56,16 +56,16 @@ defmodule BorsNG.GitHub.Merge.API do
             }
           )
       end
-    end    
+    end
 
-    Enum.reduce(patch_links, tbase, do_merge_patch)    
+    Enum.reduce(patch_links, tbase, do_merge_patch)
   end
 
   def squash_merge_batch!(batch, patch_links, base, toml) do
     repo_conn = Project.installation_connection(batch.project.repo_xref, Repo)
 
     stmp = "#{batch.project.staging_branch}-squash-merge.tmp"
-    GitHub.force_push!(repo_conn, base.commit, stmp)    
+    GitHub.force_push!(repo_conn, base.commit, stmp)
 
     new_head =
       Enum.reduce(patch_links, base.commit, fn patch_link, prev_head ->
@@ -103,8 +103,7 @@ defmodule BorsNG.GitHub.Merge.API do
             %{
               from: source_sha,
               to: stmp,
-              commit_message:
-                "[ci skip][skip ci][skip netlify] -bors-staging-tmp-#{source_sha}"
+              commit_message: "[ci skip][skip ci][skip netlify] -bors-staging-tmp-#{source_sha}"
             }
           )
 
