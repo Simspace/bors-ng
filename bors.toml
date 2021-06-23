@@ -1,0 +1,5 @@
+status = [
+  "testing/bors-ng"
+]
+
+timeout_sec = 600
