@@ -3,3 +3,4 @@ status = [
 ]
 
 timeout_sec = 600
+use_squash_merge = true
