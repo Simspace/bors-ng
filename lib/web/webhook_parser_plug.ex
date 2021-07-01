@@ -23,7 +23,7 @@ defmodule BorsNG.WebhookParserPlug do
   end
 
   def run(conn, _options, key) do
-    {:ok, body, _} = read_body(conn)
+    {:ok, body, conn} = read_body(conn)
 
     signature =
       case get_req_header(conn, "x-hub-signature") do
