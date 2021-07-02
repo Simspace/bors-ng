@@ -1,5 +1,6 @@
 defmodule BorsNG.Database.StatusState do
-  @behaviour Ecto.Type
+  use Ecto.Type
+
   @moduledoc """
   A type to represent the status state.
   """
@@ -22,9 +23,9 @@ defmodule BorsNG.Database.StatusState do
     case state do
       :waiting -> {:ok, :waiting}
       :running -> {:ok, :running}
-      :ok      -> {:ok, :ok}
-      :error   -> {:ok, :error}
-      _        -> :error
+      :ok -> {:ok, :ok}
+      :error -> {:ok, :error}
+      _ -> :error
     end
   end
 
@@ -38,9 +39,9 @@ defmodule BorsNG.Database.StatusState do
     case term do
       :waiting -> {:ok, 0}
       :running -> {:ok, 1}
-      :ok      -> {:ok, 2}
-      :error   -> {:ok, 3}
-      _        -> :error
+      :ok -> {:ok, 2}
+      :error -> {:ok, 3}
+      _ -> :error
     end
   end
 

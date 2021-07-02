@@ -89,72 +89,56 @@ Proposing and adding new features
 If you'd like to add a new feature, or make big changes to the way bors works,
 head over to the [RFC](https://forum.bors.tech/t/about-the-draft-rfcs-category/291) area in the forum and follow the instructions.
 
+Developing locally
+------------------
 
-What do the tags in the issue tracker mean?
--------------------------------------------
+To work on bors-ng you will need:
 
-### A: area tags
+1. Erlang and Elixir installed and in PATH
+2. a local database instance, bors uses Postgres by default
 
-These refer to the component that the issue is in.
+You can install Erlang and Elixir as you prefer, one way to do it without
+affecting other development environments is with [asdf](https://asdf-vm.com/#/). The following shows you how to use asdf. If you already have Erlang and Elixir installed
+or prefer to install them in another way just skip to the next section.
 
-* [A-testing]: The test suite
-* [A-frontend]: The dashboard page
-* [A-backend]: The backend task running stuff
-* [A-docs]: Incorrect or missing documentation
+**NOTE**: please check the Erlang and Elixir versions against `.travis.yml` to make sure you are using a supported version.
 
-[A-testing]: https://github.com/bors-ng/bors-ng/labels/A-testing
-[A-frontend]: https://github.com/bors-ng/bors-ng/labels/A-frontend
-[A-backend]: https://github.com/bors-ng/bors-ng/labels/A-backend
-[A-docs]: https://github.com/bors-ng/bors-ng/labels/A-docs
+### Installing Erlang and Elixir with asdf
 
-### E: entry-level issues
+To get started developing on bors with asdf install it as per the docs, then
+install Erlang and Elixir with the following commands (we assume you're on linux,
+YMMV on other OSs):
 
-If you want to get started hacking on Bors-NG, these are the issues to pick up. Whoever filed it knows how to fix it (they might've even already done it), and is willing to guide someone else through it. If you're working on it, and have a question, ask please. We want to help.
+```sh
+asdf plugin-add erlang
+asdf install erlang 21.0.9
+asdf plugin-add elixir
+asdf install elixir 1.8.1
+# in the parent directory
+cat<<EOF > ../.tool-versions
+elixir 1.8.1
+erlang 21.0.9
+EOF
+```
 
-* [E-easy]: Good first bugs. The filer should already know how to fix it; they may even have already fixed it in a private branch. Whichever it is, the point of working on a bug like this is to learn how to edit, deploy, and test an instance of bors-ng, and to file the pull request, get it reviewed, and merged. E-easy issues should be things that actually need done, but nothing is too easy for E-easy.
-* [E-medium]: This tag exists to provide a gradual path from "fixing typos and minor appearance glitches" to "taking an active role in the ongoing development in bors-ng." E-medium changes should be "good second bugs," meaning they require the contributor to learn how stuff works under the hood. As before, the filer should know how to fix it.
-* [E-hard]: The filer should have an idea about how it should be fixed, but an E-hard issue should require the contributor to know how bors-ng works.
+**NOTE**: please double check the Erlang and Elixir versions against `.travis.yml` to make sure you are using a supported version.
 
-[E-easy]: https://github.com/bors-ng/bors-ng/labels/E-easy
-[E-medium]: https://github.com/bors-ng/bors-ng/labels/E-medium
-[E-hard]: https://github.com/bors-ng/bors-ng/labels/E-hard
+### Running tests locally
 
-### C: do not work on this issue
+You are now set for developing locally. For example to run the tests you will just have to start a postgres instance on localhost, using docker is the simplest way:
 
-C-tags are "partially closed"; either there's already somebody working on it, or it's not possible right now.
+```sh
+docker run -it --rm --net=host -e POSTGRES_PASSWORD=Postgres1234 postgres:11.2
+```
 
-* [C-assigned]: A contributor, who does not have write access to the repo itself, is working on the issue. This is not needed if it's assigned within GitHub itself (but that's not always possible, unfortunately).
-* [C-blocked-on-external]: Something else needs to change before this issue can be completed.
-* [C-has-pr]: There exists an open pull request for this issue.
+then in another shell you can run the tests as simply as:
 
-[C-assigned]: https://github.com/bors-ng/bors-ng/labels/C-assigned
-[C-blocked-on-external]: https://github.com/bors-ng/bors-ng/labels/C-blocked-on-external
-[C-has-pr]: https://github.com/bors-ng/bors-ng/labels/C-has-pr
+```sh
+mix test
+```
 
-### I: issue description
+to run a single test suite/case just pass the relative path to the test name and optionally the line number:
 
-I-tags describe the kind of issue.
-
-* [I-crash]: Internal server error, etc
-* [I-unsound]: bors-ng is merging pull requests that break master!
-* [I-ux]: Human factor failures
-* [I-enhancement]: Features that would be nice to have
-* [I-perf]: Always too slow
-* [I-intermittent]: an issue that only happens sometimes
-
-[I-crash]: https://github.com/bors-ng/bors-ng/labels/I-crash
-[I-unsound]: https://github.com/bors-ng/bors-ng/labels/I-unsound
-[I-ux]: https://github.com/bors-ng/bors-ng/labels/I-ux
-[I-enhancement]: https://github.com/bors-ng/bors-ng/labels/I-enhancement
-[I-perf]: https://github.com/bors-ng/bors-ng/labels/I-perf
-[I-intermittent]: https://github.com/bors-ng/bors-ng/labels/I-intermittent
-
-### L: language
-
-The primary programming language this will need to be implemented in. If none is specified, it's Elixir.
-
-### S: pull request status
-
-This is the only type of tag that is added to pull requests.
-
-* S-do-not-merge-yet: Do not merge this pull request.
+```sh
+mix test test/batcher/batcher_test.exs:3878
+```

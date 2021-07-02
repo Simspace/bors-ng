@@ -71,35 +71,35 @@ defmodule BorsNG.GitHub.ServerMock do
     GenServer.start_link(__MODULE__, :ok, name: BorsNG.GitHub)
   end
 
-  @type tconn :: BorsNG.GitHub.tconn
-  @type ttoken :: BorsNG.GitHub.ttoken
-  @type trepo :: BorsNG.GitHub.trepo
-  @type tuser :: BorsNG.GitHub.User.t
-  @type tcollaborator :: BorsNG.GitHub.tcollaborator
+  @type tconn :: BorsNG.GitHub.tconn()
+  @type ttoken :: BorsNG.GitHub.ttoken()
+  @type trepo :: BorsNG.GitHub.trepo()
+  @type tuser :: BorsNG.GitHub.User.t()
+  @type tcollaborator :: BorsNG.GitHub.tcollaborator()
 
   @type tbranch :: bitstring
   @type tcommit :: bitstring
 
   @type tsynthesized :: %{
-    commit_message: bitstring,
-    parents: [bitstring]
-  }
+          commit_message: bitstring,
+          parents: [bitstring]
+        }
 
   @type tstate :: %{
-    tconn => %{
-      branches: %{tbranch => tcommit},
-      comments: %{integer => [bitstring]},
-      commits: %{bitstring => tsynthesized},
-      statuses: %{tbranch => %{bitstring => :open | :closed | :running}},
-      files: %{tbranch => %{bitstring => bitstring}},
-      collaborators: [tcollaborator],
-    },
-    {:installation, number} => %{
-      repos: [trepo]
-    },
-    :users => %{bitstring => tuser},
-    :merge_conflict => integer,
-  }
+          tconn => %{
+            branches: %{tbranch => tcommit},
+            comments: %{integer => [bitstring]},
+            commits: %{bitstring => tsynthesized},
+            statuses: %{tbranch => %{bitstring => :open | :closed | :running}},
+            files: %{tbranch => %{bitstring => bitstring}},
+            collaborators: [tcollaborator]
+          },
+          {:installation, number} => %{
+            repos: [trepo]
+          },
+          :users => %{bitstring => tuser},
+          :merge_conflict => integer
+        }
 
   def put_state(state) do
     GenServer.call(BorsNG.GitHub, {:put_state, state})
@@ -131,60 +131,83 @@ defmodule BorsNG.GitHub.ServerMock do
   end
 
   def handle_call(:get_installation_list, _from, state) do
-    list = state
-    |> Enum.flat_map(fn
-      {{{:installation, installation_number}, _repo_number}, _data} ->
-        [installation_number]
-      {{:installation, installation_number}, _data} ->
-        [installation_number]
-      _ ->
-        []
-    end)
-    |> Enum.uniq()
+    list =
+      state
+      |> Enum.flat_map(fn
+        {{{:installation, installation_number}, _repo_number}, _data} ->
+          [installation_number]
+
+        {{:installation, installation_number}, _data} ->
+          [installation_number]
+
+        _ ->
+          []
+      end)
+      |> Enum.uniq()
+
     {:reply, {:ok, list}, state}
   end
 
-
-  def do_handle_call(:get_team_by_name, repo_conn, {org_name, team}, state) do
-    with({:ok, repo} <- Map.fetch(state, repo_conn),
-      {:ok, teams} <- Map.fetch(repo, :teams),
-      {:ok, org} <- Map.fetch(teams, org_name),
-      do: Map.fetch(org, team))
-    |> case do
-         {:ok, _} = res -> {res, state}
-         _ -> {{:error, :get_pr}, state}
-       end
-  end
-
   def do_handle_call(:get_pr, repo_conn, {pr_xref}, state) do
-    with({:ok, repo} <- Map.fetch(state, repo_conn),
-         {:ok, pulls} <- Map.fetch(repo, :pulls),
-      do: Map.fetch(pulls, pr_xref))
+    with(
+      {:ok, repo} <- Map.fetch(state, repo_conn),
+      {:ok, pulls} <- Map.fetch(repo, :pulls),
+      do: Map.fetch(pulls, pr_xref)
+    )
     |> case do
       {:ok, _} = res -> {res, state}
       _ -> {{:error, :get_pr}, state}
     end
   end
 
-  def do_handle_call(:get_pr_files, repo_conn, {pr_xref}, state) do
+  def do_handle_call(:update_pr, repo_conn, pr, state) do
+    with {:ok, repo} <- Map.fetch(state, repo_conn),
+         {:ok, pulls} <- Map.fetch(repo, :pulls) do
+      pulls = %{pulls | pr.number => pr}
+      repo = %{repo | pulls: pulls}
+      state = %{state | repo_conn => repo}
+      {{:ok, pr}, state}
+    end
+    |> case do
+      {{:ok, _}, _} = res -> res
+      _ -> {{:error, :update_pr}, state}
+    end
+  end
 
-   files = with {:ok, repo} <- Map.fetch(state, repo_conn),
-         {:ok, files} <- Map.fetch(repo, :files) do
-        fil = Enum.map(files["Z"], fn {k,v} ->
+  def do_handle_call(:update_pr_base, repo_conn, pr, state) do
+    with {:ok, repo} <- Map.fetch(state, repo_conn),
+         {:ok, pulls} <- Map.fetch(repo, :pulls) do
+      pulls = %{pulls | pr.number => pr}
+      repo = %{repo | pulls: pulls}
+      state = %{state | repo_conn => repo}
+      {{:ok, pr}, state}
+    end
+    |> case do
+      {{:ok, _}, _} = res -> res
+      _ -> {{:error, :update_pr}, state}
+    end
+  end
+
+  def do_handle_call(:get_pr_files, repo_conn, {_pr_xref}, state) do
+    files =
+      with {:ok, repo} <- Map.fetch(state, repo_conn),
+           {:ok, files} <- Map.fetch(repo, :files) do
+        Enum.map(files["Z"], fn {k, _} ->
           %BorsNG.GitHub.File{filename: k}
         end)
       else
-       err -> {{:error, :get_pr_files}, state}
-    end
+        _ -> {{:error, :get_pr_files}, state}
+      end
 
     {{:ok, files}, state}
-
   end
 
   def do_handle_call(:get_pr_commits, repo_conn, {pr_xref}, state) do
-    with({:ok, repo} <- Map.fetch(state, repo_conn),
-         {:ok, pr_commits} <- Map.fetch(repo, :pr_commits),
-      do: Map.fetch(pr_commits, pr_xref))
+    with(
+      {:ok, repo} <- Map.fetch(state, repo_conn),
+      {:ok, pr_commits} <- Map.fetch(repo, :pr_commits),
+      do: Map.fetch(pr_commits, pr_xref)
+    )
     |> case do
       {:ok, _} = res -> {res, state}
       _ -> {{:error, :get_pr_commits}, state}
@@ -192,9 +215,11 @@ defmodule BorsNG.GitHub.ServerMock do
   end
 
   def do_handle_call(:get_installation_repos, installation_conn, {}, state) do
-    with({:ok, installation} <- Map.fetch(state, installation_conn),
-         {:ok, repos} <- Map.fetch(installation, :repos),
-      do: {:ok, repos})
+    with(
+      {:ok, installation} <- Map.fetch(state, installation_conn),
+      {:ok, repos} <- Map.fetch(installation, :repos),
+      do: {:ok, repos}
+    )
     |> case do
       {:ok, _} = res -> {res, state}
       _ -> {{:error, :get_open_prs}, state}
@@ -202,25 +227,52 @@ defmodule BorsNG.GitHub.ServerMock do
   end
 
   def do_handle_call(:get_open_prs, repo_conn, {}, state) do
-    with({:ok, repo} <- Map.fetch(state, repo_conn),
-         {:ok, pulls} <- Map.fetch(repo, :pulls),
-      do: {:ok, Map.values(pulls) |> Enum.filter(&(&1.state == :open))})
+    with(
+      {:ok, repo} <- Map.fetch(state, repo_conn),
+      {:ok, pulls} <- Map.fetch(repo, :pulls),
+      do: {:ok, Map.values(pulls) |> Enum.filter(&(&1.state == :open))}
+    )
     |> case do
       {:ok, _} = res -> {res, state}
       _ -> {{:error, :get_open_prs}, state}
     end
   end
 
+  def do_handle_call(:get_open_prs_with_base, repo_conn, {base}, state) do
+    with(
+      {:ok, repo} <- Map.fetch(state, repo_conn),
+      {:ok, pulls} <- Map.fetch(repo, :pulls),
+      do: {
+        :ok,
+        Map.values(pulls)
+        |> Enum.filter(&(&1.state == :open))
+        |> Enum.filter(&(&1.base_ref == base))
+      }
+    )
+    |> case do
+      {:ok, _} = res -> {res, state}
+      _ -> {{:error, :get_open_prs_with_base}, state}
+    end
+  end
+
   def do_handle_call(:push, repo_conn, {sha, to}, state) do
     with {:ok, repo} <- Map.fetch(state, repo_conn),
-         {:ok, branches} <- Map.fetch(repo, :branches) do
-      branches = %{branches | to => sha}
-      repo = %{repo | branches: branches}
-      state = %{state | repo_conn => repo}
-      {{:ok, sha}, state}
+         {:ok, branches} <- Map.fetch(repo, :branches),
+         push_errors <- Map.get(repo, :push_errors, %{}) do
+      case Map.fetch(push_errors, to) do
+        {:ok, error} ->
+          {{:error, :push, error[:error_code], error[:response]}, state}
+
+        _ ->
+          branches = %{branches | to => sha}
+          repo = %{repo | branches: branches}
+          state = %{state | repo_conn => repo}
+          {{:ok, sha}, state}
+      end
     end
     |> case do
       {{:ok, _}, _} = res -> res
+      {{:error, :push, _, _}, _} = res -> res
       _ -> {{:error, :push}, state}
     end
   end
@@ -228,10 +280,12 @@ defmodule BorsNG.GitHub.ServerMock do
   def do_handle_call(:get_branch, repo_conn, {from}, state) do
     with {:ok, repo} <- Map.fetch(state, repo_conn),
          {:ok, branches} <- Map.fetch(repo, :branches) do
-      sha = case branches[from] do
-        nil -> from
-        sha -> sha
-      end
+      sha =
+        case branches[from] do
+          nil -> from
+          sha -> sha
+        end
+
       {{:ok, %{commit: sha, tree: sha}}, state}
     end
     |> case do
@@ -254,32 +308,43 @@ defmodule BorsNG.GitHub.ServerMock do
     end
   end
 
-  def do_handle_call(:merge_branch, _, _,
-    %{merge_conflict: 0} = state) do
+  def do_handle_call(:merge_branch, _, _, %{merge_conflict: 0} = state) do
     {{:ok, :conflict}, state}
   end
 
-  def do_handle_call(:merge_branch, repo_conn, params,
-    %{merge_conflict: n} = state) when is_integer(n) do
-    {result, state} = do_handle_call(
-      :merge_branch,
-      repo_conn,
-      params,
-      %{state | :merge_conflict => nil})
+  def do_handle_call(:merge_branch, repo_conn, params, %{merge_conflict: n} = state)
+      when is_integer(n) do
+    {result, state} =
+      do_handle_call(
+        :merge_branch,
+        repo_conn,
+        params,
+        %{state | :merge_conflict => nil}
+      )
+
     {result, %{state | :merge_conflict => n - 1}}
   end
 
-  def do_handle_call(:merge_branch, repo_conn, {%{
-    from: from,
-    to: to,
-    commit_message: _commit_message}}, state) do
+  def do_handle_call(
+        :merge_branch,
+        repo_conn,
+        {%{
+           from: from,
+           to: to,
+           commit_message: _commit_message
+         }},
+        state
+      ) do
     with {:ok, repo} <- Map.fetch(state, repo_conn),
          {:ok, branches} <- Map.fetch(repo, :branches) do
       base = branches[to]
-      head = case branches[from] do
-        nil -> from
-        head -> head
-      end
+
+      head =
+        case branches[from] do
+          nil -> from
+          head -> head
+        end
+
       nsha = base <> head
       branches = %{branches | to => nsha}
       repo = %{repo | branches: branches}
@@ -292,22 +357,34 @@ defmodule BorsNG.GitHub.ServerMock do
     end
   end
 
-  def do_handle_call(:synthesize_commit, repo_conn, {%{
-    branch: branch,
-    tree: tree,
-    parents: parents,
-    commit_message: commit_message,
-    committer: _committer}}, state) do
+  def do_handle_call(
+        :synthesize_commit,
+        repo_conn,
+        {%{
+           branch: branch,
+           tree: tree,
+           parents: parents,
+           commit_message: commit_message,
+           committer: _committer
+         }},
+        state
+      ) do
     with {:ok, repo} <- Map.fetch(state, repo_conn),
          {:ok, branches} <- Map.fetch(repo, :branches),
          {:ok, commits} <- Map.fetch(repo, :commits) do
-      nsha = parents
-      |> Enum.reverse()
-      |> Enum.reduce(&<>/2)
+      nsha =
+        parents
+        |> Enum.reverse()
+        |> Enum.reduce(&<>/2)
+
       ^nsha = tree
-      commits = Map.put(commits, nsha, %{
-        parents: parents,
-        commit_message: commit_message})
+
+      commits =
+        Map.put(commits, nsha, %{
+          parents: parents,
+          commit_message: commit_message
+        })
+
       branches = Map.put(branches, branch, nsha)
       repo = %{repo | branches: branches}
       repo = %{repo | commits: commits}
@@ -335,9 +412,11 @@ defmodule BorsNG.GitHub.ServerMock do
   end
 
   def do_handle_call(:get_commit_status, repo_conn, {sha}, state) do
-    with({:ok, repo} <- Map.fetch(state, repo_conn),
-         {:ok, statuses} <- Map.fetch(repo, :statuses),
-      do: {:ok, statuses[sha] || %{}})
+    with(
+      {:ok, repo} <- Map.fetch(state, repo_conn),
+      {:ok, statuses} <- Map.fetch(repo, :statuses),
+      do: {:ok, statuses[sha] || %{}}
+    )
     |> case do
       {:ok, _} = res -> {res, state}
       _ -> {{:error, :get_commit_status}, state}
@@ -345,30 +424,46 @@ defmodule BorsNG.GitHub.ServerMock do
   end
 
   def do_handle_call(:get_labels, repo_conn, {issue_xref}, state) do
-    with({:ok, repo} <- Map.fetch(state, repo_conn),
-         {:ok, labels} <- Map.fetch(repo, :labels),
-      do: {:ok, labels[issue_xref]})
+    with(
+      {:ok, repo} <- Map.fetch(state, repo_conn),
+      {:ok, labels} <- Map.fetch(repo, :labels),
+      do: {:ok, labels[issue_xref]}
+    )
     |> case do
       {:ok, _} = res -> {res, state}
       _ -> {{:ok, []}, state}
     end
   end
 
-  def do_handle_call(:get_reviews, repo_conn, {issue_xref}, state) do
-    with({:ok, repo} <- Map.fetch(state, repo_conn),
-         {:ok, reviews} <- Map.fetch(repo, :reviews),
-      do: {:ok, reviews[issue_xref]})
+  def do_handle_call(:get_reviews, repo_conn, {issue_xref, sha}, state) do
+    review_type =
+      if is_nil(sha) do
+        :reviews
+      else
+        :up_to_date_reviews
+      end
+
+    with(
+      {:ok, repo} <- Map.fetch(state, repo_conn),
+      {:ok, reviews} <- Map.fetch(repo, review_type),
+      do: {:ok, reviews[issue_xref]}
+    )
     |> case do
       {:ok, _} = res -> {res, state}
       _ -> {{:ok, %{"APPROVED" => 0, "CHANGES_REQUESTED" => 0}}, state}
     end
   end
 
+  def do_handle_call(:get_reviews, repo_conn, {issue_xref}, state) do
+    do_handle_call(:get_reviews, repo_conn, {issue_xref, nil}, state)
+  end
+
   def do_handle_call(:get_file, repo_conn, {branch, path}, state) do
-    with({:ok, repo} <- Map.fetch(state, repo_conn),
-         {:ok, files} <- Map.fetch(repo, :files),
-      do:
-        {:ok, files[branch][path]})
+    with(
+      {:ok, repo} <- Map.fetch(state, repo_conn),
+      {:ok, files} <- Map.fetch(repo, :files),
+      do: {:ok, files[branch][path]}
+    )
     |> case do
       {:ok, _} = res -> {res, state}
       _ -> {{:error, :get_file}, state}
@@ -390,6 +485,7 @@ defmodule BorsNG.GitHub.ServerMock do
       _ -> {{:error, :post_comment}, state}
     end
   end
+
   def do_handle_call(
         :post_commit_status,
         repo_conn,
@@ -398,13 +494,17 @@ defmodule BorsNG.GitHub.ServerMock do
       ) do
     with {:ok, repo} <- Map.fetch(state, repo_conn),
          {:ok, statuses} <- Map.fetch(repo, :statuses) do
-      sha_statuses = case Map.has_key?(statuses, sha) do
-        false -> %{"bors" => status}
-        true ->
-          statuses
-          |> Map.fetch!(sha)
-          |> Map.put("bors", status)
-      end
+      sha_statuses =
+        case Map.has_key?(statuses, sha) do
+          false ->
+            %{"bors" => status}
+
+          true ->
+            statuses
+            |> Map.fetch!(sha)
+            |> Map.put("bors", status)
+        end
+
       statuses = Map.put(statuses, sha, sha_statuses)
       repo = %{repo | statuses: statuses}
       state = %{state | repo_conn => repo}
@@ -427,14 +527,18 @@ defmodule BorsNG.GitHub.ServerMock do
   end
 
   def do_handle_call(
-    :get_user_by_login, _token, {login}, state
-  ) do
-    with({:ok, users} <- Map.fetch(state, :users),
-      do: {:ok, users[login]})
+        :get_user_by_login,
+        _token,
+        {login},
+        state
+      ) do
+    with(
+      {:ok, users} <- Map.fetch(state, :users),
+      do: {:ok, users[login]}
+    )
     |> case do
       {:ok, user} -> {{:ok, user}, state}
       _ -> {{:ok, nil}, state}
     end
   end
-
 end
