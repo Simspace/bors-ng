@@ -16,6 +16,8 @@ defmodule BorsNG.GitHub.Merge.Local do
   alias BorsNG.GitHub.Merge.Hooks
   alias BorsNG.Worker.Batcher
 
+  @bors_author ["-c", "user.name='bors-ng'", "-c", "user.email='bors@app.bors.tech'"]
+
   def start_link do
     GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
   end
@@ -78,7 +80,7 @@ defmodule BorsNG.GitHub.Merge.Local do
     File.rm_rf!(workdir)
     init_project_repo!(batch.project, cli_creds(repo_conn))
 
-    git = fn args -> System.cmd("git", args, cd: workdir) end
+    git = fn args -> System.cmd("git", @bors_author ++ args, cd: workdir) end
 
     git.(["fetch", "origin", batch.into_branch])
     git.(["checkout", "origin/#{batch.into_branch}"])
@@ -141,7 +143,7 @@ defmodule BorsNG.GitHub.Merge.Local do
     File.rm_rf!(workdir)
     init_project_repo!(batch.project, cli_creds(repo_conn))
 
-    git = fn args -> System.cmd("git", args, cd: workdir) end
+    git = fn args -> System.cmd("git", @bors_author ++ args, cd: workdir) end
 
     git.(["fetch", "origin", batch.into_branch])
     git.(["checkout", "origin/#{batch.into_branch}"])
@@ -237,7 +239,7 @@ defmodule BorsNG.GitHub.Merge.Local do
   """
   @spec commit_hook_changes!(String.t()) :: :ok
   def commit_hook_changes!(workdir) do
-    git = fn args -> System.cmd("git", args, cd: workdir) end
+    git = fn args -> System.cmd("git", @bors_author ++ args, cd: workdir) end
     {last_msg, 0} = git.(["log", "-n1", "--pretty=%B"])
     git.(["add", "-A"])
     git.(["commit", "--amend", "-m", last_msg])
