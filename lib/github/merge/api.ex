@@ -10,17 +10,11 @@ defmodule BorsNG.GitHub.Merge.API do
   alias BorsNG.GitHub
   require Logger
 
-  def merge_batch!(batch, patch_links) do
+  def merge_batch!(batch, patch_links, base) do
     project = batch.project
     repo_conn = Project.installation_connection(project.repo_xref, Repo)
 
     stmp = "#{project.staging_branch}.tmp"
-
-    base =
-      GitHub.get_branch!(
-        repo_conn,
-        batch.into_branch
-      )
 
     tbase = %{
       tree: base.tree,

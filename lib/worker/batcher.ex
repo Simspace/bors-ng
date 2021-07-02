@@ -398,9 +398,9 @@ defmodule BorsNG.Worker.Batcher do
 
     merge =
       if Confex.fetch_env!(:bors, :local_merge?) do
-        Merge.Local.merge_batch!(batch, patch_links)
+        Merge.Local.merge_batch!(batch, patch_links, base)
       else
-        Merge.API.merge_batch!(batch, patch_links)
+        Merge.API.merge_batch!(batch, patch_links, base)
       end
 
     {status, commit} =

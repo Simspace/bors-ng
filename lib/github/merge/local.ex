@@ -34,10 +34,10 @@ defmodule BorsNG.GitHub.Merge.Local do
     "x-access-token:#{token}"
   end
 
-  @spec merge_batch!(Batch.t(), list(LinkPatchBatch.t())) ::
+  @spec merge_batch!(Batch.t(), list(LinkPatchBatch.t()), %{commit: String.t(), tree: String.t()}) ::
           %{commit: String.t(), tree: String.t()} | :conflict
-  def merge_batch!(batch, patch_links) do
-    GenServer.call(__MODULE__, {:merge_batch, batch, patch_links}, :infinity)
+  def merge_batch!(batch, patch_links, base) do
+    GenServer.call(__MODULE__, {:merge_batch, batch, patch_links, base}, :infinity)
   end
 
   @spec squash_merge_batch!(Batch.t(), list(LinkPatchBatch.t()), map) ::
@@ -51,15 +51,29 @@ defmodule BorsNG.GitHub.Merge.Local do
     {:reply, reply, state}
   end
 
-  defp do_handle_call({:merge_batch, batch, patch_links}) do
+  defp do_handle_call({:merge_batch, batch, patch_links, base}) do
     batch = batch |> Repo.preload([:project])
     workdir = batch.project.name
 
     repo_conn = Project.installation_connection(batch.project.repo_xref, Repo)
 
+    stmp = "#{batch.project.staging_branch}.tmp"
+
+    # Create the staging.tmp branch before we push to it
+    GitHub.synthesize_commit!(
+      repo_conn,
+      %{
+        branch: stmp,
+        tree: base.tree,
+        parents: [base.commit],
+        commit_message: "[ci skip][skip ci][skip netlify]",
+        committer: nil
+      }
+    )
+
     # We make sure to clone the repository for each batch, rather than
     # trying to reuse it, because hooks may change behavior in ways that could
-    # persist between batches in ways that Git can't detect, like modifying 
+    # persist between batches in ways that Git can't detect, like modifying
     # the .git/config.
     File.rm_rf!(workdir)
     init_project_repo!(batch.project, cli_creds(repo_conn))
@@ -106,7 +120,7 @@ defmodule BorsNG.GitHub.Merge.Local do
       :merged ->
         Hooks.invoke_after_merge_hook!(workdir)
         commit_hook_changes!(workdir)
-        persist_local_to_github!("#{batch.project.staging_branch}.tmp", workdir)
+        persist_local_to_github!(stmp, workdir)
 
         local_commit_info(batch.project.name)
     end
@@ -118,9 +132,11 @@ defmodule BorsNG.GitHub.Merge.Local do
 
     repo_conn = Project.installation_connection(batch.project.repo_xref, Repo)
 
+    stmp = "#{batch.project.staging_branch}-squash-merge.tmp"
+
     # We make sure to clone the repository for each batch, rather than
     # trying to reuse it, because hooks may change behavior in ways that could
-    # persist between batches in ways that Git can't detect, like modifying 
+    # persist between batches in ways that Git can't detect, like modifying
     # the .git/config.
     File.rm_rf!(workdir)
     init_project_repo!(batch.project, cli_creds(repo_conn))
@@ -174,7 +190,8 @@ defmodule BorsNG.GitHub.Merge.Local do
     Hooks.invoke_after_merge_hook!(workdir)
     commit_hook_changes!(workdir)
 
-    persist_local_to_github!("#{batch.project.staging_branch}-squash-merge.tmp", workdir)
+    persist_local_to_github!(stmp, workdir)
+    GitHub.delete_branch!(repo_conn, stmp)
     local_commit_info(workdir)
   end
 
@@ -201,7 +218,7 @@ defmodule BorsNG.GitHub.Merge.Local do
   @spec persist_local_to_github!(String.t(), String.t()) :: :ok
   defp persist_local_to_github!(branch_name, workdir) do
     # Credentials already exist in the URL for 'origin' here, from the clone.
-    # Each access token is valid for an hour, so there shouldn't be a need to 
+    # Each access token is valid for an hour, so there shouldn't be a need to
     # refresh it before pushing.
     {_, 0} =
       System.cmd(
