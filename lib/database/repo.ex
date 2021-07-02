@@ -7,35 +7,42 @@ defmodule BorsNG.Database.Repo do
   We call those `Project`s internally.
   """
 
-  use Ecto.Repo, otp_app: :bors
+  use Ecto.Repo,
+    otp_app: :bors,
+    adapter: Application.get_env(:bors, BorsNG.Database.Repo)[:adapter]
 
   def init(_, config) do
     # Backwards compatibility hack: if POSTGRES_HOST is set, and the database URL is left at default,
     # use the older configuration.
     config = Confex.Resolver.resolve!(config)
     no_host = is_nil(System.get_env("POSTGRES_HOST"))
-    config = case config[:url] do
+
+    config =
+      case config[:url] do
         _ when no_host ->
-            config
+          config
+
         "postgresql://postgres:Postgres1234@localhost/bors_dev" ->
-            [
-                adapter: Ecto.Adapters.Postgres,
-                username: "postgres",
-                password: "Postgres1234",
-                database: "bors_dev",
-                hostname: {:system, "POSTGRES_HOST", "localhost"},
-                pool_size: 10
-            ]
+          [
+            adapter: Ecto.Adapters.Postgres,
+            username: "postgres",
+            password: "Postgres1234",
+            database: "bors_dev",
+            hostname: {:system, "POSTGRES_HOST", "localhost"},
+            pool_size: 10
+          ]
+
         "postgresql://postgres:Postgres1234@localhost/bors_test" ->
-            [
-                adapter: Ecto.Adapters.Postgres,
-                username: "postgres",
-                password: "Postgres1234",
-                database: "bors_test",
-                hostname: {:system, "POSTGRES_HOST", "localhost"},
-                pool_size: 10
-            ]
-    end
+          [
+            adapter: Ecto.Adapters.Postgres,
+            username: "postgres",
+            password: "Postgres1234",
+            database: "bors_test",
+            hostname: {:system, "POSTGRES_HOST", "localhost"},
+            pool_size: 10
+          ]
+      end
+
     {:ok, config}
   end
 end

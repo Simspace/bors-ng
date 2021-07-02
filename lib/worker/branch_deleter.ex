@@ -40,17 +40,25 @@ defmodule BorsNG.Worker.BranchDeleter do
   def handle_cast({:delete, patch, attempt}, state) do
     patch = Repo.preload(patch, :project)
     conn = Project.installation_connection(patch.project.repo_xref, Repo)
+
     case GitHub.get_pr(conn, patch.pr_xref) do
       {:ok, %{merged: true} = pr} ->
         delete_branch(conn, pr)
+
       {:ok, %{state: :closed} = pr} ->
         delete_branch(conn, pr)
+
       {:ok, %{state: :open}} when attempt < @retries ->
-        Process.send_after(self(),
+        Process.send_after(
+          self(),
           {:retry_delete, patch, attempt + 1},
-          attempt_delay(attempt))
-      _ -> nil
+          attempt_delay(attempt)
+        )
+
+      _ ->
+        nil
     end
+
     {:noreply, state}
   end
 
@@ -59,27 +67,43 @@ defmodule BorsNG.Worker.BranchDeleter do
   end
 
   defp delete_branch(conn, pr) do
-    pr_in_same_repo = pr.head_repo_id > 0 &&
-                      pr.head_repo_id == pr.base_repo_id
+    pr_in_same_repo =
+      pr.head_repo_id > 0 &&
+        pr.head_repo_id == pr.base_repo_id
 
     toml_result = Batcher.GetBorsToml.get(conn, pr.head_ref)
-    delete_merged_branches = case toml_result do
-      {:ok, toml} -> toml.delete_merged_branches
-      _ -> false
-    end
+
+    {delete_merged_branches, update_base_for_deletes} =
+      case toml_result do
+        {:ok, toml} -> {toml.delete_merged_branches, toml.update_base_for_deletes}
+        _ -> {false, false}
+      end
 
     pr_closed = pr.state == :closed
 
     pr_squash_merged = String.starts_with?(pr.title, "[Merged by Bors] - ")
 
     if pr_in_same_repo && delete_merged_branches do
-      cond do
-        pr.merged ->
-          GitHub.delete_branch!(conn, pr.head_ref)
-        pr_closed && pr_squash_merged ->
-          GitHub.delete_branch!(conn, pr.head_ref)
-        true ->
-          nil  
+      delete =
+        cond do
+          pr.merged ->
+            true
+
+          pr_closed && pr_squash_merged ->
+            true
+
+          true ->
+            nil
+        end
+
+      if delete do
+        if update_base_for_deletes do
+          GitHub.get_open_prs_with_base!(conn, pr.head_ref)
+          |> Enum.map(&%{&1 | base_ref: pr.base_ref})
+          |> Enum.map(&GitHub.update_pr_base!(conn, &1))
+        end
+
+        GitHub.delete_branch!(conn, pr.head_ref)
       end
     end
   end
