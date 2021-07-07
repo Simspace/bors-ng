@@ -152,7 +152,7 @@ defmodule BorsNG.GitHub.Merge.Local do
 
     head =
       patch_links
-      |> Enum.reduce(batch.into_branch, fn patch_link, prev_head ->
+      |> Enum.reduce("origin/#{batch.into_branch}", fn patch_link, prev_head ->
         patch_link = patch_link |> Repo.preload([:patch])
         patch = patch_link.patch
 
