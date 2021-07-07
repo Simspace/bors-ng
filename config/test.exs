@@ -28,4 +28,6 @@ config :bors, :server, BorsNG.GitHub.ServerMock
 config :bors, :oauth2, BorsNG.GitHub.OAuth2Mock
 config :bors, :is_test, true
 
+config :bors, :local_merge?, false
+
 config :bors, :celebrate_new_year, false

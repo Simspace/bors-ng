@@ -33,6 +33,7 @@ defmodule BorsNG.Worker.Batcher do
   alias BorsNG.Database.Status
   alias BorsNG.Database.LinkPatchBatch
   alias BorsNG.GitHub
+  alias BorsNG.GitHub.Merge
   alias BorsNG.Endpoint
   import BorsNG.Router.Helpers
   import Ecto.Query
@@ -395,43 +396,12 @@ defmodule BorsNG.Worker.Batcher do
         batch.into_branch
       )
 
-    tbase = %{
-      tree: base.tree,
-      commit:
-        GitHub.synthesize_commit!(
-          repo_conn,
-          %{
-            branch: stmp,
-            tree: base.tree,
-            parents: [base.commit],
-            commit_message: "[ci skip][skip ci][skip netlify]",
-            committer: nil
-          }
-        )
-    }
-
-    do_merge_patch = fn %{patch: patch}, branch ->
-      case branch do
-        :conflict ->
-          :conflict
-
-        :canceled ->
-          :canceled
-
-        _ ->
-          GitHub.merge_branch!(
-            repo_conn,
-            %{
-              from: patch.commit,
-              to: stmp,
-              commit_message:
-                "[ci skip][skip ci][skip netlify] -bors-staging-tmp-#{patch.pr_xref}"
-            }
-          )
+    merge =
+      if Confex.fetch_env!(:bors, :local_merge?) do
+        Merge.Local.merge_batch!(batch, patch_links, base)
+      else
+        Merge.API.merge_batch!(batch, patch_links, base)
       end
-    end
-
-    merge = Enum.reduce(patch_links, tbase, do_merge_patch)
 
     {status, commit} =
       start_waiting_merged_batch(
@@ -466,92 +436,25 @@ defmodule BorsNG.Worker.Batcher do
     |> Batcher.GetBorsToml.get("#{batch.project.staging_branch}.tmp")
     |> case do
       {:ok, toml} ->
+        squash? = toml.use_squash_merge
+        local? = Confex.fetch_env!(:bors, :local_merge?)
+
         parents =
-          if toml.use_squash_merge do
-            stmp = "#{batch.project.staging_branch}-squash-merge.tmp"
-            GitHub.force_push!(repo_conn, base.commit, stmp)
+          cond do
+            squash? and local? ->
+              %{commit: commit} = Merge.Local.squash_merge_batch!(batch, patch_links, toml)
+              [commit]
 
-            new_head =
-              Enum.reduce(patch_links, base.commit, fn patch_link, prev_head ->
-                Logger.debug("Patch Link #{inspect(patch_link)}")
-                Logger.debug("Patch #{inspect(patch_link.patch)}")
+            squash? and not local? ->
+              commit = Merge.API.squash_merge_batch!(batch, patch_links, base, toml)
+              [commit]
 
-                {:ok, commits} = GitHub.get_pr_commits(repo_conn, patch_link.patch.pr_xref)
-                {:ok, pr} = GitHub.get_pr(repo_conn, patch_link.patch.pr_xref)
-
-                {token, _} = repo_conn
-                user = GitHub.get_user_by_login!(token, pr.user.login)
-
-                Logger.debug("PR #{inspect(pr)}")
-                Logger.debug("User #{inspect(user)}")
-
-                # If a user doesn't have a public email address in their GH profile
-                # then get the email from the first commit to the PR
-                user_email =
-                  if user.email != nil do
-                    user.email
-                  else
-                    Enum.at(commits, 0).author_email
-                  end
-
-                # The head sha is the final commit in the PR.
-                source_sha = pr.head_sha
-                Logger.info("Staging branch #{stmp}")
-                Logger.info("Commit sha #{source_sha}")
-
-                # Create a merge commit for each PR
-                # because each PR is merged on top of each other in stmp, we can verify against any merge conflicts
-                merge_commit =
-                  GitHub.merge_branch!(
-                    repo_conn,
-                    %{
-                      from: source_sha,
-                      to: stmp,
-                      commit_message:
-                        "[ci skip][skip ci][skip netlify] -bors-staging-tmp-#{source_sha}"
-                    }
-                  )
-
-                Logger.info("Merge Commit #{inspect(merge_commit)}")
-
-                Logger.info("Previous Head #{inspect(prev_head)}")
-
-                # Then compress the merge commit into tree into a single commit
-                # appent it to the previous commit
-                # Because the merges are iterative the contain *only* the changes from the PR vs the previous PR(or head)
-
-                commit_message =
-                  Batcher.Message.generate_squash_commit_message(
-                    pr,
-                    commits,
-                    user_email,
-                    toml.cut_body_after
-                  )
-
-                cpt =
-                  GitHub.create_commit!(
-                    repo_conn,
-                    %{
-                      tree: merge_commit.tree,
-                      parents: [prev_head],
-                      commit_message: commit_message,
-                      committer: %{name: user.name || user.login, email: user_email}
-                    }
-                  )
-
-                Logger.info("Commit Sha #{inspect(cpt)}")
-                cpt
-              end)
-
-            GitHub.delete_branch!(repo_conn, stmp)
-            [new_head]
-          else
-            parents = [base.commit | Enum.map(patch_links, & &1.patch.commit)]
-            parents
+            not squash? ->
+              [base.commit | Enum.map(patch_links, & &1.patch.commit)]
           end
 
         head =
-          if toml.use_squash_merge do
+          if squash? do
             # This will avoid creating a merge commit, which is important since it will prevent
             # bors from polluting th git blame history with it's own name
             head = Enum.at(parents, 0)

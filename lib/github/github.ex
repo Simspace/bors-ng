@@ -419,6 +419,18 @@ defmodule BorsNG.GitHub do
     installations
   end
 
+  @spec get_raw_token!(tconn) :: ttoken
+  def get_raw_token!(repo_conn) do
+    {:ok, token} =
+      GenServer.call(
+        BorsNG.GitHub,
+        {:get_raw_token, repo_conn, nil},
+        Confex.fetch_env!(:bors, :api_github_timeout)
+      )
+
+    token
+  end
+
   @spec map_state_to_status(binary) :: tstatus
   def map_state_to_status(state) do
     case state do
