@@ -1,6 +1,10 @@
 ARG ELIXIR_VERSION=1.11.4
 ARG SOURCE_COMMIT
 
+FROM haskell:8.10.4-buster as haskell-builder
+COPY simformat /simformat
+RUN cd simformat && stack install simformat --local-bin-path=/usr/local/bin
+
 FROM elixir:${ELIXIR_VERSION} as builder
 
 ENV LANG=C.UTF-8 LC_ALL=C.UTF-8
@@ -49,6 +53,8 @@ RUN curl -Ls https://github.com/bors-ng/dockerize/releases/download/v0.7.9/docke
 
 ADD ./script/docker-entrypoint /usr/local/bin/bors-ng-entrypoint
 COPY --from=builder /src/_build/prod/rel/ /app/
+
+COPY --from=haskell-builder /usr/local/bin/simformat /usr/local/bin/simformat
 
 ENV LANG=C.UTF-8 LC_ALL=C.UTF-8
 ENV PORT=4000
