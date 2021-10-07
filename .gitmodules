@@ -1,0 +1,3 @@
+[submodule "simformat"]
+	path = simformat
+	url = git@github.com:Simspace/simformat.git
