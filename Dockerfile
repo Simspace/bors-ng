@@ -2,7 +2,7 @@ ARG ELIXIR_VERSION=1.11.4
 ARG SOURCE_COMMIT
 
 # SimSpace-format begin
-FROM haskell:8.10.4-buster as haskell-builder
+FROM haskell:9.4.4-buster as haskell-builder
 COPY simformat /simformat
 RUN cd simformat && stack install simformat --local-bin-path=/usr/local/bin
 # SimSpace-format end
